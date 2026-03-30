@@ -1,12 +1,12 @@
 #include "Game.h"
-#include "PongComponent.h"
+#include "SolarSystemComponent.h"
 
 int main()
 {
-    Game game(L"Ping-pong", 800, 600);
+    Game game(L"Solar System", 1920, 1080);
 
-    auto* pong = new PongComponent(&game);
-    game.Components.push_back(pong);
+    auto* solarSystem = new SolarSystemComponent(&game);
+    game.Components.push_back(solarSystem);
 
     game.Initialize();
     game.Run();
