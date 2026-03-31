@@ -1,16 +1,9 @@
-// SolarSystem.hlsl
-// Vertex + Pixel shader with per-object CB, Phong-lite shading.
-
-// ─── Constant buffer ─────────────────────────────────────────────────────────
-
 cbuffer CBPerObject : register(b0)
 {
     float4x4 World;
     float4x4 ViewProj;
     float4 BaseColor;
 };
-
-// ─── Structs ──────────────────────────────────────────────────────────────────
 
 struct VS_IN
 {
@@ -27,8 +20,6 @@ struct PS_IN
     float4 Color : COLOR;
 };
 
-// ─── Vertex shader ────────────────────────────────────────────────────────────
-
 PS_IN VSMain(VS_IN input)
 {
     PS_IN output;
@@ -44,14 +35,12 @@ PS_IN VSMain(VS_IN input)
     return output;
 }
 
-// ─── Pixel shader ─────────────────────────────────────────────────────────────
-
 float4 PSMain(PS_IN input) : SV_Target
 {
     // Sun is at world origin — use it as the point light
     static const float3 LightPos = float3(0.0f, 0.0f, 0.0f);
-    static const float3 LightColor = float3(1.0f, 0.95f, 0.8f);
-    static const float Ambient = 0.12f;
+    static const float3 LightColor = float3(1.0f, 0.9f, 0.8f);
+    static const float Ambient = 0.15f;
 
     float3 N = normalize(input.Normal);
     float3 L = normalize(LightPos - input.WorldPos);
