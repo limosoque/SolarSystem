@@ -23,6 +23,7 @@ SolarSystemComponent::SolarSystemComponent(Game* owner, std::wstring shaderPath)
 void SolarSystemComponent::Initialize()
 {
     BuildPipeline();
+    //BuildOrbitPipeline();
     BuildDepthBuffer();
     BuildMeshes();
     BuildScene();
@@ -162,8 +163,8 @@ Mesh SolarSystemComponent::CreateSphereMesh(UINT stacks, UINT slices, float radi
         {
 			UINT a = i * (slices + 1) + j; //upper left point of quad
 			UINT b = a + slices + 1; //lower left point of quad
-            idxs.push_back(a);     idxs.push_back(b);     idxs.push_back(a + 1);
-            idxs.push_back(b);     idxs.push_back(b + 1); idxs.push_back(a + 1);
+            idxs.push_back(a);     idxs.push_back(a + 1); idxs.push_back(b);
+            idxs.push_back(a + 1); idxs.push_back(b + 1); idxs.push_back(b);
         }
     }
 
@@ -538,6 +539,46 @@ void SolarSystemComponent::Draw()
         const Mesh& mesh = (body.MeshIndex == 0) ? mSphereMesh_ : mBoxMesh_;
         DrawMesh(mesh);
     }
+
+    DrawOrbits(worldPositions, viewProj);
+}
+
+void SolarSystemComponent::DrawOrbits(const std::vector<XMVECTOR>& parentPositions,
+    const XMMATRIX& viewProj)
+{
+    auto* context = game->Context.Get();
+
+    for (size_t i = 0; i < bodies_.size(); ++i)
+    {
+        const auto& body = bodies_[i];
+        if (body.OrbitRadius <= 0.0f) continue;
+
+        XMFLOAT3 centre = { 0.0f, 0.0f, 0.0f };
+        if (body.ParentIndex >= 0)
+            XMStoreFloat3(&centre, parentPositions[body.ParentIndex]);
+
+        //create box bigger than orbit
+        float boxSize = (body.OrbitRadius + 1.0f) * 2.0f;
+
+        //Y almost null to not intersect planets
+        XMMATRIX world = XMMatrixScaling(boxSize, 0.001f, boxSize) *
+            XMMatrixTranslation(centre.x, centre.y, centre.z);
+
+        CBPerObject cb;
+        cb.World = XMMatrixTranspose(world);
+        cb.ViewProj = XMMatrixTranspose(viewProj);
+        cb.BaseColor = { 0.5f, 0.5f, 0.8f, 1.0f };
+        cb.OrbitParams.x = body.OrbitRadius;
+        cb.OrbitParams.y = orbitThickness_;
+        cb.OrbitParams.z = 1.0f;
+
+        D3D11_MAPPED_SUBRESOURCE mapped;
+        context->Map(cbPerObject_.Get(), 0, D3D11_MAP_WRITE_DISCARD, 0, &mapped);
+        memcpy(mapped.pData, &cb, sizeof(cb));
+        context->Unmap(cbPerObject_.Get(), 0);
+
+        DrawMesh(mBoxMesh_);
+    }
 }
 
 void SolarSystemComponent::DrawMesh(const Mesh& mesh)
@@ -556,10 +597,15 @@ void SolarSystemComponent::UpdateCB(const XMMATRIX& world,
     auto* context = game->Context.Get();
     D3D11_MAPPED_SUBRESOURCE mapped;
     context->Map(cbPerObject_.Get(), 0, D3D11_MAP_WRITE_DISCARD, 0, &mapped);
+
     auto* constantBuffer = reinterpret_cast<CBPerObject*>(mapped.pData);
     constantBuffer->World = XMMatrixTranspose(world);
     constantBuffer->ViewProj = XMMatrixTranspose(vp);
     constantBuffer->BaseColor = color;
+
+    //for planets reset params with null
+    constantBuffer->OrbitParams = XMFLOAT4(0.0f, 0.0f, 0.0f, 0.0f);
+
     context->Unmap(cbPerObject_.Get(), 0);
 }
 
@@ -574,8 +620,10 @@ void SolarSystemComponent::DestroyResources()
     ps_.Reset();
     vs_.Reset();
 
+    orbitVB_.Reset();
+
     mSphereMesh_.VertexBuffer.Reset();
     mSphereMesh_.IndexBuffer.Reset();
     mBoxMesh_.VertexBuffer.Reset();
     mBoxMesh_.IndexBuffer.Reset();
-}
+}   

@@ -12,11 +12,12 @@ using namespace DirectX;
 using Microsoft::WRL::ComPtr;
 
 //Constant buffer layout
-struct CBPerObject
+struct alignas(16) CBPerObject
 {
     XMMATRIX World;
     XMMATRIX ViewProj;
     XMFLOAT4 BaseColor;
+    XMFLOAT4 OrbitParams;
 };
 
 struct Vertex
@@ -88,12 +89,19 @@ private:
     ComPtr<ID3D11Texture2D> dsTexture_;
     ComPtr<ID3D11DepthStencilState> dss_;
 
+	//Orbit line
+    UINT kOrbitSegments = 128;
+    UINT kMaxOrbitVerts = kOrbitSegments * 2 * 32;
+    ComPtr<ID3D11Buffer> orbitVB_;
+
     Mesh mSphereMesh_;
     Mesh mBoxMesh_;
 
     std::vector<OrbitalBody> bodies_;
 
     CameraMode cameraMode_ = CameraMode::Orbital;
+
+    float orbitThickness_ = 0.02f;
 
     //orbital camera
     float camYaw_ = 0.0f;
@@ -138,6 +146,8 @@ private:
     void UpdateCamera(float dt);
     void HandleInput(float dt);
 
+    void DrawOrbits(const std::vector<XMVECTOR>& parentPositions,
+         const XMMATRIX& viewProj);
     void DrawMesh(const Mesh& mesh);
     void UpdateCB(const XMMATRIX& world, const XMMATRIX& vp, XMFLOAT4 color);
 };
