@@ -37,21 +37,6 @@ PS_IN VSMain(VS_IN input)
 }
 
 float4 PSMain(PS_IN input) : SV_Target
-{
-    if (OrbitParams.z > 0.5f)
-    {
-        float3 center = float3(World[3][0], World[3][1], World[3][2]);
-        float dist = distance(input.WorldPos, center);
-        
-        float radius = OrbitParams.x;
-        float thickness = OrbitParams.y;
-        float distToLine = abs(dist - radius);
-        
-        if (distToLine > thickness)
-            discard;
-        
-        return input.Color;
-    }
-    
+{ 
     return input.Color;
 }

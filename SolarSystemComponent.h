@@ -90,9 +90,9 @@ private:
     ComPtr<ID3D11DepthStencilState> dss_;
 
 	//Orbit line
-    UINT kOrbitSegments = 128;
-    UINT kMaxOrbitVerts = kOrbitSegments * 2 * 32;
-    ComPtr<ID3D11Buffer> orbitVB_;
+    UINT kOrbitPoints = 4096;
+    ComPtr<ID3D11Buffer>  orbitVB_;
+    std::vector<int>      orbitOffsets_;
 
     Mesh mSphereMesh_;
     Mesh mBoxMesh_;
@@ -102,6 +102,7 @@ private:
     CameraMode cameraMode_ = CameraMode::Orbital;
 
     float orbitThickness_ = 0.02f;
+	XMFLOAT4 orbitColor_ = { 0.2f, 0.5f, 0.8f, 1.0f };
 
     //orbital camera
     float camYaw_ = 0.0f;
@@ -134,6 +135,7 @@ private:
     void BuildDepthBuffer();
     void BuildMeshes();
     void BuildScene();
+    void BuildOrbitBuffer();
 
     Mesh CreateSphereMesh(UINT stacks, UINT slices, float radius, XMFLOAT4 color);
     Mesh CreateBoxMesh(float w, float h, float d, XMFLOAT4 color);
@@ -146,7 +148,7 @@ private:
     void UpdateCamera(float dt);
     void HandleInput(float dt);
 
-    void DrawOrbits(const std::vector<XMVECTOR>& parentPositions,
+    void DrawOrbits(const std::vector<XMFLOAT3>& parentPositions,
          const XMMATRIX& viewProj);
     void DrawMesh(const Mesh& mesh);
     void UpdateCB(const XMMATRIX& world, const XMMATRIX& vp, XMFLOAT4 color);

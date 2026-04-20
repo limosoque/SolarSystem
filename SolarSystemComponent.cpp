@@ -23,10 +23,10 @@ SolarSystemComponent::SolarSystemComponent(Game* owner, std::wstring shaderPath)
 void SolarSystemComponent::Initialize()
 {
     BuildPipeline();
-    //BuildOrbitPipeline();
     BuildDepthBuffer();
     BuildMeshes();
     BuildScene();
+    BuildOrbitBuffer();
 
     GetCursorPos(&lastMouse_);
 }
@@ -501,33 +501,62 @@ void SolarSystemComponent::Draw()
     XMMATRIX viewProj = XMMatrixMultiply(view, proj);
         
     std::vector<XMMATRIX> worldTransforms(bodies_.size(), XMMatrixIdentity());
-    std::vector<XMVECTOR> worldPositions(bodies_.size(), XMVectorZero());
+    //std::vector<XMVECTOR> worldPositions(bodies_.size(), XMVectorZero());
+    std::vector<XMFLOAT3> worldPositions(bodies_.size(), { 0.0f, 0.0f, 0.0f });
 
     //compute world position for each body
+    //for (size_t i = 0; i < bodies_.size(); ++i)
+    //{
+    //    const auto& body = bodies_[i];
+    //    float coordinateX = body.OrbitRadius * std::cos(body.OrbitAngle);
+    //    float coordinateZ = body.OrbitRadius * std::sin(body.OrbitAngle);
+    //    XMVECTOR localPosition = XMVectorSet(coordinateX, 0, coordinateZ, 0);
+
+    //    if (body.ParentIndex >= 0)
+    //        localPosition = XMVectorAdd(localPosition, worldPositions[body.ParentIndex]);
+
+    //    worldPositions[i] = localPosition;
+    //}
+
     for (size_t i = 0; i < bodies_.size(); ++i)
     {
         const auto& body = bodies_[i];
         float coordinateX = body.OrbitRadius * std::cos(body.OrbitAngle);
         float coordinateZ = body.OrbitRadius * std::sin(body.OrbitAngle);
-        XMVECTOR localPosition = XMVectorSet(coordinateX, 0, coordinateZ, 0);
+
+        worldPositions[i].x = coordinateX;
+        worldPositions[i].y = 0.0f;
+        worldPositions[i].z = coordinateZ;
 
         if (body.ParentIndex >= 0)
-            localPosition = XMVectorAdd(localPosition, worldPositions[body.ParentIndex]);
-
-        worldPositions[i] = localPosition;
+        {
+            worldPositions[i].x += worldPositions[body.ParentIndex].x;
+            worldPositions[i].y += worldPositions[body.ParentIndex].y;
+            worldPositions[i].z += worldPositions[body.ParentIndex].z;
+        }
     }
 
     //compute world transform for each body
+  //  for (size_t i = 0; i < bodies_.size(); ++i)
+  //  {
+  //      const auto& body = bodies_[i];
+  //      XMMATRIX scale = XMMatrixScaling(body.Scale, body.Scale, body.Scale);
+  //      XMMATRIX rotation = XMMatrixRotationY(body.SpinAngle);
+  //       
+		////move planet to its world position
+  //      XMFLOAT3 worldPosition;
+  //      XMStoreFloat3(&worldPosition, worldPositions[i]);
+  //      XMMATRIX translation = XMMatrixTranslation(worldPosition.x, worldPosition.y, worldPosition.z);
+
+  //      worldTransforms[i] = XMMatrixMultiply(XMMatrixMultiply(scale, rotation), translation);
+  //  }
     for (size_t i = 0; i < bodies_.size(); ++i)
     {
         const auto& body = bodies_[i];
         XMMATRIX scale = XMMatrixScaling(body.Scale, body.Scale, body.Scale);
         XMMATRIX rotation = XMMatrixRotationY(body.SpinAngle);
-         
-		//move planet to its world position
-        XMFLOAT3 worldPosition;
-        XMStoreFloat3(&worldPosition, worldPositions[i]);
-        XMMATRIX translation = XMMatrixTranslation(worldPosition.x, worldPosition.y, worldPosition.z);
+        XMMATRIX translation = XMMatrixTranslation(
+            worldPositions[i].x, worldPositions[i].y, worldPositions[i].z);
 
         worldTransforms[i] = XMMatrixMultiply(XMMatrixMultiply(scale, rotation), translation);
     }
@@ -543,42 +572,81 @@ void SolarSystemComponent::Draw()
     DrawOrbits(worldPositions, viewProj);
 }
 
-void SolarSystemComponent::DrawOrbits(const std::vector<XMVECTOR>& parentPositions,
-    const XMMATRIX& viewProj)
+
+void SolarSystemComponent::BuildOrbitBuffer()
 {
-    auto* context = game->Context.Get();
+    orbitOffsets_.assign(bodies_.size(), -1);
+
+    std::vector<Vertex> pts;
+    pts.reserve(bodies_.size() * kOrbitPoints);
 
     for (size_t i = 0; i < bodies_.size(); ++i)
     {
         const auto& body = bodies_[i];
-        if (body.OrbitRadius <= 0.0f) continue;
+        if (body.OrbitRadius <= 0.0f) continue;   //sun has no orbit
 
+        orbitOffsets_[i] = static_cast<int>(pts.size());
+
+        const float r = body.OrbitRadius;
+        const float step = XM_2PI / static_cast<float>(kOrbitPoints);
+
+        for (UINT s = 0; s < kOrbitPoints; ++s)
+        {
+            float a = step * static_cast<float>(s);
+            Vertex v;
+            v.Position = { r * std::cos(a), 0.0f, r * std::sin(a) };
+            v.Normal = { 0.0f, 1.0f, 0.0f };   //not used for orbit shading
+            v.Color = orbitColor_;
+            pts.push_back(v);
+        }
+    }
+
+    if (pts.empty()) return;
+
+    D3D11_BUFFER_DESC vbd = {};
+    vbd.Usage = D3D11_USAGE_IMMUTABLE;
+    vbd.BindFlags = D3D11_BIND_VERTEX_BUFFER;
+    vbd.ByteWidth = static_cast<UINT>(sizeof(Vertex) * pts.size());
+    D3D11_SUBRESOURCE_DATA vsd = { pts.data() };
+
+    HRESULT hr = game->Device->CreateBuffer(&vbd, &vsd, orbitVB_.GetAddressOf());
+    if (FAILED(hr)) throw std::runtime_error("CreateBuffer (orbit VB) failed.");
+}
+
+
+void SolarSystemComponent::DrawOrbits(const std::vector<XMFLOAT3>& parentPositions,
+    const XMMATRIX& viewProj)
+{
+    if (!orbitVB_ || orbitOffsets_.empty()) return;
+
+    auto* ctx = game->Context.Get();
+
+    ctx->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_POINTLIST);
+
+    UINT stride = sizeof(Vertex), offset = 0;
+    ctx->IASetVertexBuffers(0, 1, orbitVB_.GetAddressOf(), &stride, &offset);
+
+    for (size_t i = 0; i < bodies_.size(); ++i)
+    {
+        if (orbitOffsets_[i] < 0) continue;
+
+        const auto& body = bodies_[i];
+
+        //Translate the pre-baked ring to the parent's current world position
         XMFLOAT3 centre = { 0.0f, 0.0f, 0.0f };
         if (body.ParentIndex >= 0)
-            XMStoreFloat3(&centre, parentPositions[body.ParentIndex]);
+            centre = parentPositions[body.ParentIndex];
 
-        //create box bigger than orbit
-        float boxSize = (body.OrbitRadius + 1.0f) * 2.0f;
+        XMMATRIX world = XMMatrixTranslation(centre.x, centre.y, centre.z);
 
-        //Y almost null to not intersect planets
-        XMMATRIX world = XMMatrixScaling(boxSize, 0.001f, boxSize) *
-            XMMatrixTranslation(centre.x, centre.y, centre.z);
+        //UpdateCB zeroes OrbitParams → shader skips SDF branch, renders flat color
+        UpdateCB(world, viewProj, orbitColor_);
 
-        CBPerObject cb;
-        cb.World = XMMatrixTranspose(world);
-        cb.ViewProj = XMMatrixTranspose(viewProj);
-        cb.BaseColor = { 0.5f, 0.5f, 0.8f, 1.0f };
-        cb.OrbitParams.x = body.OrbitRadius;
-        cb.OrbitParams.y = orbitThickness_;
-        cb.OrbitParams.z = 1.0f;
-
-        D3D11_MAPPED_SUBRESOURCE mapped;
-        context->Map(cbPerObject_.Get(), 0, D3D11_MAP_WRITE_DISCARD, 0, &mapped);
-        memcpy(mapped.pData, &cb, sizeof(cb));
-        context->Unmap(cbPerObject_.Get(), 0);
-
-        DrawMesh(mBoxMesh_);
+        ctx->Draw(kOrbitPoints, static_cast<UINT>(orbitOffsets_[i]));
     }
+
+    // Restore triangle topology for subsequent planet draws
+    ctx->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
 }
 
 void SolarSystemComponent::DrawMesh(const Mesh& mesh)
@@ -621,6 +689,7 @@ void SolarSystemComponent::DestroyResources()
     vs_.Reset();
 
     orbitVB_.Reset();
+    orbitOffsets_.clear();
 
     mSphereMesh_.VertexBuffer.Reset();
     mSphereMesh_.IndexBuffer.Reset();
